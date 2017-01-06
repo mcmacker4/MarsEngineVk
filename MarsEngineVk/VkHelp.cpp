@@ -2,16 +2,52 @@
 
 namespace vkh {
 
+	std::vector<const char*> instanceExtensions;
+	std::vector<const char*> instanceLayers;
 	VulkanHandles handles{};
 
+#ifdef _DEBUG
+	VkDebugReportCallbackEXT debugReportCallback;
+	VkDebugReportCallbackCreateInfoEXT debugCallbackCreateInfo{};
+
+	PFN_vkCreateDebugReportCallbackEXT fvkCreateDebugReportCallback;
+	PFN_vkDestroyDebugReportCallbackEXT fvkDestroyDebugReportCallback;
+#endif
+
 	void vulkanInit() {
+
+		//Debug init
+#ifdef _DEBUG
+		instanceLayers.push_back("VK_LAYER_LUNARG_standard_validation");
+		instanceExtensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+
+		debugCallbackCreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
+		debugCallbackCreateInfo.pfnCallback = VulkanDebugCallback;
+		debugCallbackCreateInfo.flags = VK_DEBUG_REPORT_INFORMATION_BIT_EXT |
+			VK_DEBUG_REPORT_WARNING_BIT_EXT |
+			VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT |
+			VK_DEBUG_REPORT_ERROR_BIT_EXT |
+			VK_DEBUG_REPORT_DEBUG_BIT_EXT;
+#endif
+
 		//Create Vulkan Instance
 		handles.instance = new VkInstance;
-		VkResult err = createInstance("Hello Vulkan", VK_MAKE_VERSION(0, 1, 0), handles.instance);
+#ifdef _DEBUG
+		VkResult err = createInstance("Hello Vulkan", VK_MAKE_VERSION(0, 1, 0), handles.instance, &debugCallbackCreateInfo);
+#else
+		VkResult err = createInstance("Hello Vulkan", VK_MAKE_VERSION(0, 1, 0), handles.instance, nullptr);
+#endif
 		if (err != VK_SUCCESS)
 			throw "Could not create Vulkan Instance";
 
 		std::cout << "Instance created." << std::endl;
+
+		//Finalize Debug setup.
+#ifdef _DEBUG
+		fvkCreateDebugReportCallback = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(*handles.instance, "vkCreateDebugReportCallbackEXT");
+		fvkDestroyDebugReportCallback = (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(*handles.instance, "vkDestroyDebugReportCallbackEXT");
+		fvkCreateDebugReportCallback(*handles.instance, &debugCallbackCreateInfo, nullptr, &debugReportCallback);
+#endif
 
 		//Get Physical device
 		std::vector<VkPhysicalDevice> physicalDevices = getPhysicalDevices(handles.instance);
@@ -35,11 +71,16 @@ namespace vkh {
 	void cleanUp() {
 		destroyDevice(*handles.device);
 		std::cout << "Device destroyed." << std::endl;
+
+#ifdef _DEBUG
+		fvkDestroyDebugReportCallback(*handles.instance, debugReportCallback, nullptr);
+#endif
+
 		destroyInstance(*handles.instance);
 		std::cout << "Instance destroyed." << std::endl;
 	}
 
-	VkResult createInstance(const char* appName, uint32_t appVersion, VkInstance *pInstance) {
+	VkResult createInstance(const char* appName, uint32_t appVersion, VkInstance *pInstance, const void* pNext) {
 		VkApplicationInfo appInfo{};
 		appInfo.apiVersion = VK_MAKE_VERSION(1, 0, 3);
 		appInfo.applicationVersion = appVersion;
@@ -48,6 +89,15 @@ namespace vkh {
 		VkInstanceCreateInfo instanceCreateInfo{};
 		instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 		instanceCreateInfo.pApplicationInfo = &appInfo;
+		instanceCreateInfo.enabledExtensionCount = instanceExtensions.size();
+		instanceCreateInfo.ppEnabledExtensionNames = instanceExtensions.data();
+		instanceCreateInfo.enabledLayerCount = instanceLayers.size();
+		instanceCreateInfo.ppEnabledLayerNames = instanceLayers.data();
+		instanceCreateInfo.pNext = pNext;
+
+#ifdef _DEBUG
+		
+#endif
 
 		return vkCreateInstance(&instanceCreateInfo, nullptr, pInstance);
 	}
@@ -101,4 +151,43 @@ namespace vkh {
 		vkDestroyDevice(device, nullptr);
 	}
 
+	
+
+}
+
+VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objectType, uint64_t object, size_t location, int32_t msgCode, const char * pLayerPrefix, const char * pMessage, void * pUserData)
+{
+
+	bool error = false;
+
+	std::ostringstream output;
+	if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) {
+		error = true;
+		output << "[ERROR]";
+	}
+	else if (flags & VK_DEBUG_REPORT_WARNING_BIT_EXT) {
+		output << "[WARN]";
+	}
+	else if (flags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT) {
+		output << "[PERFORMANCE WARN]";
+	}
+	else if (flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT) {
+		output << "[DEBUG]";
+	}
+	else if (flags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT) {
+		output << "[INFO]";
+	}
+
+	output << "[" << pLayerPrefix << "] " << pMessage << std::endl;
+
+	if (error) {
+		std::cerr << output.str();
+#ifdef _WIN32
+		MessageBox(NULL, output.str().c_str(), "VULKAN ERROR", 0);
+#endif
+	}
+	else {
+		std::cout << output.str();
+	}
+	return false;
 }
