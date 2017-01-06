@@ -95,10 +95,6 @@ namespace vkh {
 		instanceCreateInfo.ppEnabledLayerNames = instanceLayers.data();
 		instanceCreateInfo.pNext = pNext;
 
-#ifdef _DEBUG
-		
-#endif
-
 		return vkCreateInstance(&instanceCreateInfo, nullptr, pInstance);
 	}
 
